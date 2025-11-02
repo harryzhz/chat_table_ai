@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pandas
+openpyxl
+python-jose[cryptography]
+passlib[bcrypt]
+aiofiles
+pydantic
+pydantic-settings

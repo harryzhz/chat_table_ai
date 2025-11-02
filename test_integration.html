@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatTable 集成测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+        #results { margin-top: 20px; }
+        .log { margin: 5px 0; padding: 5px; background: #f8f9fa; border-left: 3px solid #007bff; }
+    </style>
+</head>
+<body>
+    <h1>ChatTable 前后端集成测试</h1>
+    
+    <div class="test-section">
+        <h3>1. 后端健康检查</h3>
+        <button onclick="testHealth()">测试后端连接</button>
+        <div id="health-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. 文件上传测试</h3>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+        <button onclick="testUpload()">测试文件上传</button>
+        <div id="upload-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. 聊天接口测试</h3>
+        <input type="text" id="sessionId" placeholder="Session ID (从上传结果获取)" style="width: 300px;">
+        <input type="text" id="message" placeholder="输入消息" value="这个数据有多少行？" style="width: 200px;">
+        <button onclick="testChat()">测试聊天</button>
+        <div id="chat-result"></div>
+    </div>
+
+    <div id="results">
+        <h3>测试日志</h3>
+        <div id="logs"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log';
+            logDiv.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            if (type === 'error') logDiv.style.borderLeftColor = '#dc3545';
+            if (type === 'success') logDiv.style.borderLeftColor = '#28a745';
+            logs.appendChild(logDiv);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        async function testHealth() {
+            const resultDiv = document.getElementById('health-result');
+            try {
+                log('测试后端健康检查...');
+                const response = await fetch('http://localhost:8000/health');
+                const data = await response.json();
+                
+                if (data.status === 'healthy') {
+                    resultDiv.innerHTML = '<span style="color: green;">✅ 后端连接正常</span>';
+                    log('后端健康检查通过', 'success');
+                } else {
+                    throw new Error('健康检查失败');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: red;">❌ 后端连接失败: ${error.message}</span>`;
+                log(`后端健康检查失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function testUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const resultDiv = document.getElementById('upload-result');
+            
+            if (!fileInput.files[0]) {
+                alert('请先选择一个文件');
+                return;
+            }
+
+            try {
+                log('测试文件上传...');
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                const response = await fetch('http://localhost:8000/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <span style="color: green;">✅ 文件上传成功</span><br>
+                        <strong>Session ID:</strong> ${data.session_id}<br>
+                        <strong>文件信息:</strong> ${data.file_info.filename} (${data.file_info.rows}行, ${data.file_info.columns}列)
+                    `;
+                    document.getElementById('sessionId').value = data.session_id;
+                    log(`文件上传成功: ${data.file_info.filename}`, 'success');
+                } else {
+                    throw new Error('上传失败');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: red;">❌ 文件上传失败: ${error.message}</span>`;
+                log(`文件上传失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function testChat() {
+            const sessionId = document.getElementById('sessionId').value;
+            const message = document.getElementById('message').value;
+            const resultDiv = document.getElementById('chat-result');
+
+            if (!sessionId || !message) {
+                alert('请输入 Session ID 和消息');
+                return;
+            }
+
+            try {
+                log('测试聊天接口...');
+                resultDiv.innerHTML = '<div>正在发送消息...</div>';
+
+                const response = await fetch('http://localhost:8000/api/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        session_id: sessionId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let chatContent = '';
+
+                resultDiv.innerHTML = '<div style="color: green;">✅ 聊天连接成功</div><div id="chat-content"></div>';
+                const chatContentDiv = document.getElementById('chat-content');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data === '[DONE]') {
+                                log('聊天流式响应完成', 'success');
+                                return;
+                            }
+                            
+                            try {
+                                const event = JSON.parse(data);
+                                if (event.type === 'response' && event.content) {
+                                    chatContent += event.content;
+                                    chatContentDiv.innerHTML = `<pre style="white-space: pre-wrap;">${chatContent}</pre>`;
+                                }
+                            } catch (e) {
+                                console.warn('Failed to parse SSE data:', data);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: red;">❌ 聊天测试失败: ${error.message}</span>`;
+                log(`聊天测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 页面加载时自动测试后端连接
+        window.onload = function() {
+            log('页面加载完成，开始集成测试');
+            testHealth();
+        };
+    </script>
+</body>
+</html>
