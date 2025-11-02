@@ -1,9 +1,8 @@
 """Agent 节点模块"""
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
 from app.agents.config import AgentConfig
+from app.agents.llm import LLMFactory, LLMMessage, MessageRole, LLMProvider
 from app.services.file_service import FileService
 from app.core.logging_config import get_agent_logger
 
@@ -20,13 +19,10 @@ class IntentClassificationNode:
     """意图分类节点"""
     
     def __init__(self):
-        if AgentConfig.OPENAI_API_KEY:
-            self.llm = ChatOpenAI(
-                model=AgentConfig.OPENAI_MODEL,
-                api_key=AgentConfig.OPENAI_API_KEY,
-                temperature=0
-            )
-        else:
+        try:
+            self.llm = LLMFactory.create_from_config(AgentConfig)
+        except Exception as e:
+            logger.warning(f"创建 LLM 实例失败: {str(e)}")
             self.llm = None
     
     def __call__(self, state: AgentState) -> AgentState:
@@ -61,8 +57,8 @@ class IntentClassificationNode:
                 """
                 
                 messages = [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=f"用户问题：{user_message}")
+                    LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+                    LLMMessage(role=MessageRole.USER, content=f"用户问题：{user_message}")
                 ]
                 
                 response = self.llm.invoke(messages)
@@ -132,13 +128,17 @@ class TableAnalysisNode:
     """表格分析节点"""
     
     def __init__(self):
-        if AgentConfig.OPENAI_API_KEY:
-            self.llm = ChatOpenAI(
-                model=AgentConfig.OPENAI_MODEL,
-                api_key=AgentConfig.OPENAI_API_KEY,
-                temperature=0.1
+        try:
+            # 为表格分析使用稍高的温度值
+            self.llm = LLMFactory.create_llm(
+                provider=AgentConfig.LLM_PROVIDER,
+                model=AgentConfig.LLM_MODEL,
+                temperature=0.1,
+                fallback_to_mock=AgentConfig.LLM_FALLBACK_TO_MOCK,
+                api_key=AgentConfig.OPENAI_API_KEY if AgentConfig.LLM_PROVIDER == "openai" else None
             )
-        else:
+        except Exception as e:
+            logger.warning(f"创建 LLM 实例失败: {str(e)}")
             self.llm = None
     
     def __call__(self, state: AgentState) -> AgentState:
@@ -177,8 +177,8 @@ class TableAnalysisNode:
         """
         
         messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_message)
+            LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+            LLMMessage(role=MessageRole.USER, content=user_message)
         ]
         
         try:
@@ -316,13 +316,16 @@ class ResponseGenerationNode:
     """响应生成节点"""
     
     def __init__(self):
-        if AgentConfig.OPENAI_API_KEY:
-            self.llm = ChatOpenAI(
-                model=AgentConfig.OPENAI_MODEL,
-                api_key=AgentConfig.OPENAI_API_KEY,
-                temperature=0.1
+        try:
+            self.llm = LLMFactory.create_llm(
+                provider=AgentConfig.LLM_PROVIDER,
+                model=AgentConfig.LLM_MODEL,
+                temperature=0.1,
+                fallback_to_mock=AgentConfig.LLM_FALLBACK_TO_MOCK,
+                api_key=AgentConfig.OPENAI_API_KEY if AgentConfig.LLM_PROVIDER == "openai" else None
             )
-        else:
+        except Exception as e:
+            logger.warning(f"创建 LLM 实例失败: {str(e)}")
             self.llm = None
     
     def __call__(self, state: AgentState) -> AgentState:
@@ -339,8 +342,8 @@ class ResponseGenerationNode:
                 logger.info("使用 LLM 生成非表格相关回答")
                 system_prompt = "你是一个友好的助手，请直接回答用户的问题。"
                 messages = [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_message)
+                    LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+                    LLMMessage(role=MessageRole.USER, content=user_message)
                 ]
                 
                 try:
@@ -381,13 +384,17 @@ class DirectResponseNode:
     """直接响应节点（非表格相关问题）"""
     
     def __init__(self):
-        if AgentConfig.OPENAI_API_KEY:
-            self.llm = ChatOpenAI(
-                model=AgentConfig.OPENAI_MODEL,
-                api_key=AgentConfig.OPENAI_API_KEY,
-                temperature=0.7
+        try:
+            # 为直接响应使用较高的温度值以获得更自然的回答
+            self.llm = LLMFactory.create_llm(
+                provider=AgentConfig.LLM_PROVIDER,
+                model=AgentConfig.LLM_MODEL,
+                temperature=0.7,
+                fallback_to_mock=AgentConfig.LLM_FALLBACK_TO_MOCK,
+                api_key=AgentConfig.OPENAI_API_KEY if AgentConfig.LLM_PROVIDER == "openai" else None
             )
-        else:
+        except Exception as e:
+            logger.warning(f"创建 LLM 实例失败: {str(e)}")
             self.llm = None
     
     def __call__(self, state: AgentState) -> AgentState:
@@ -401,8 +408,8 @@ class DirectResponseNode:
         """
         
         messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_message)
+            LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+            LLMMessage(role=MessageRole.USER, content=user_message)
         ]
         
         try:
